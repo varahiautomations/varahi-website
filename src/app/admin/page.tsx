@@ -170,25 +170,65 @@ export default function AdminPage() {
     alert("Product updated");
   };
 
-  // Delete product
-  const handleDelete = async (id: number) => {
-    const confirmDelete = confirm("Delete this product?");
+// Delete product
+const handleDelete = async (id: number) => {
+  const confirmDelete = confirm("Delete this product?");
 
-    if (!confirmDelete) return;
+  if (!confirmDelete) return;
 
-    const { error } = await supabase
+  try {
+    // 1. Get product image URL before deleting the database row
+    const { data: product, error: fetchError } = await supabase
+      .from("products")
+      .select("image_url")
+      .eq("id", id)
+      .single();
+
+    if (fetchError) {
+      console.error(fetchError);
+      alert("Could not find product");
+      return;
+    }
+
+    // 2. Delete image from Supabase Storage
+    if (product?.image_url) {
+      const imagePath = product.image_url.split("/").pop();
+
+      if (imagePath) {
+        const { error: storageError } = await supabase.storage
+          .from("product-images")
+          .remove([imagePath]);
+
+        if (storageError) {
+          console.error(storageError);
+          alert("Image deletion failed");
+          return;
+        }
+      }
+    }
+
+    // 3. Delete product row from database
+    const { error: deleteError } = await supabase
       .from("products")
       .delete()
       .eq("id", id);
 
-    if (error) {
-      console.error(error);
-      alert("Delete failed");
+    if (deleteError) {
+      console.error(deleteError);
+      alert("Product deletion failed");
       return;
     }
 
+    // 4. Refresh products list
     fetchProducts();
-  };
+
+    alert("Product deleted successfully");
+
+  } catch (error) {
+    console.error(error);
+    alert("Something went wrong while deleting");
+  }
+};
 
   // Logout
   const handleLogout = async () => {
