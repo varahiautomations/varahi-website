@@ -115,10 +115,26 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  // Update product
-  const handleUpdate = async (id: number) => {
+// Update product
+const handleUpdate = async (id: number) => {
+  try {
     let updatedImageUrl: string | null = null;
+    let oldImagePath: string | null = null;
 
+    // Get old image URL
+    const { data: oldProduct, error: fetchError } = await supabase
+      .from("products")
+      .select("image_url")
+      .eq("id", id)
+      .single();
+
+    if (fetchError) {
+      console.error(fetchError);
+      alert("Could not find product");
+      return;
+    }
+
+    // Upload new image if selected
     if (editImage) {
       const fileName = `${Date.now()}-${editImage.name}`;
 
@@ -137,6 +153,14 @@ export default function AdminPage() {
         .getPublicUrl(fileName);
 
       updatedImageUrl = publicUrlData.publicUrl;
+
+      // Extract old image filename
+      if (oldProduct?.image_url) {
+        oldImagePath = oldProduct.image_url
+          .split("/")
+          .pop()
+          ?.split("?")[0] || null;
+      }
     }
 
     const updateData: {
@@ -150,15 +174,23 @@ export default function AdminPage() {
       updateData.image_url = updatedImageUrl;
     }
 
-    const { error } = await supabase
+    // Update database
+    const { error: updateError } = await supabase
       .from("products")
       .update(updateData)
       .eq("id", id);
 
-    if (error) {
-      console.error(error);
+    if (updateError) {
+      console.error(updateError);
       alert("Update failed");
       return;
+    }
+
+    // Delete old image
+    if (oldImagePath) {
+      await supabase.storage
+        .from("product-images")
+        .remove([oldImagePath]);
     }
 
     setEditingId(null);
@@ -167,8 +199,13 @@ export default function AdminPage() {
 
     fetchProducts();
 
-    alert("Product updated");
-  };
+    alert("Product updated successfully");
+
+  } catch (error) {
+    console.error(error);
+    alert("Something went wrong");
+  }
+};
 
 // Delete product
 const handleDelete = async (id: number) => {
@@ -190,34 +227,35 @@ const handleDelete = async (id: number) => {
       return;
     }
 
-    // 2. Delete image from Supabase Storage
-    if (product?.image_url) {
-      const imagePath = product.image_url.split("/").pop();
+// 2. Delete product row from database
+const { error: deleteError } = await supabase
+  .from("products")
+  .delete()
+  .eq("id", id);
 
-      if (imagePath) {
-        const { error: storageError } = await supabase.storage
-          .from("product-images")
-          .remove([imagePath]);
+if (deleteError) {
+  console.error(deleteError);
+  alert("Product deletion failed");
+  return;
+}
 
-        if (storageError) {
-          console.error(storageError);
-          alert("Image deletion failed");
-          return;
-        }
-      }
+// 3. Delete image from Supabase Storage
+if (product?.image_url) {
+  const imagePath = product.image_url
+    .split("/")
+    .pop()
+    ?.split("?")[0];
+
+  if (imagePath) {
+    const { error: storageError } = await supabase.storage
+      .from("product-images")
+      .remove([imagePath]);
+
+    if (storageError) {
+      console.error(storageError);
     }
-
-    // 3. Delete product row from database
-    const { error: deleteError } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", id);
-
-    if (deleteError) {
-      console.error(deleteError);
-      alert("Product deletion failed");
-      return;
-    }
+  }
+}
 
     // 4. Refresh products list
     fetchProducts();
